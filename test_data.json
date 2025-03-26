@@ -1,0 +1,13 @@
+{
+  "document_id": "67e257d8003f08970d6aece8",
+  "event_type": "message",
+  "data": {
+    "sender_id": "9705718889448111",
+    "recipient_id": "621815067674939",
+    "message_id": "m_0q75YHspiA1Uhv6959PQ3-S1p28MPPBNZjBq2JGqr4FVY8ClXTooX0g4oxwFctEhXu9OOE4WB_yJry9rFeKpEA",
+    "text": "4545454",
+    "timestamp": 1742886874406
+  },
+  "timestamp": 1742886872.037643,
+  "processing_preference": "sync"
+} 
