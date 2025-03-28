@@ -25,7 +25,7 @@ class Config:
     
     # Server settings
     HOST = "0.0.0.0"
-    PORT = int(os.getenv("PORT", "10000"))
+    PORT = int(os.getenv("PORT", "8000"))
     
     # Backend forwarding settings
     BACKEND_SERVER_URL = os.getenv("BACKEND_SERVER_URL", "http://localhost:4000/api/webhook")
