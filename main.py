@@ -36,6 +36,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to FastAPI on Render!"}
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
