@@ -37,6 +37,7 @@ app = FastAPI(
 )
 
 @app.get("/")
+@app.head("/")
 def read_root():
     return {"message": "Welcome to FastAPI on Render!"}
 
