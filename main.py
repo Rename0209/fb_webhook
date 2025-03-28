@@ -3,7 +3,6 @@ Facebook Webhook Application
 Main entry point for the FastAPI application that handles Facebook webhooks.
 """
 import asyncio
-import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -51,5 +50,9 @@ app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))  # Lấy PORT từ biến môi trường, mặc định 8000
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=int(Config.PORT), 
+        reload=True
+    )
