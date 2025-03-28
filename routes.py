@@ -124,6 +124,40 @@ async def process_webhook_data(structured_data: dict, time_id: float, event_type
         event_data (dict): The event data
     """
     try:
+        # Handle notification_messages events specially
+        if event_type == "notification_messages" and "notification_messages_token" in event_data:
+            token = event_data.get("notification_messages_token")
+            if token and hasattr(db, 'async_notification_collection') and db.async_notification_collection is not None:
+                try:
+                    # Check if this token already exists
+                    print(f"[DEBUG] Checking for existing notification_messages_token: {token}")
+                    existing_record = await db.async_notification_collection.find_one({
+                        'event_type': 'notification_messages',
+                        'data.notification_messages_token': token
+                    })
+                    
+                    if existing_record:
+                        print(f"[INFO] Found existing notification_messages_token: {token}")
+                        
+                        # Update existing record with new status
+                        try:
+                            update_result = await db.async_notification_collection.update_one(
+                                {'_id': existing_record['_id']},
+                                {'$set': {'data.notification_messages_status': event_data.get('notification_messages_status')}}
+                            )
+                            print(f"[INFO] Updated existing record status to {event_data.get('notification_messages_status')}")
+                            print(f"[INFO] Skipping further processing for duplicate token")
+                            
+                            # Return early without saving new data or forwarding to backend
+                            return
+                        except Exception as e:
+                            print(f"[WARNING] Could not update existing record: {str(e)}")
+                except Exception as e:
+                    print(f"[WARNING] Error checking for existing token: {str(e)}")
+                    # Continue with regular processing
+            else:
+                print(f"[WARNING] Cannot check for token duplicates - database connection not available")
+        
         # Save the structured data and get the document ID
         document_id = await db.insert_wh(structured_data)
         
@@ -137,14 +171,43 @@ async def process_webhook_data(structured_data: dict, time_id: float, event_type
         }
         await db.insert_wh(confirm_log)
         
-        # Forward to backend if enabled
-        if Config.ENABLE_FORWARDING and document_id:
-            await forward_to_backend(
-                document_id=document_id,
-                event_type=event_type,
-                data=event_data
-            )
+        # Forward to backend if enabled and not a notification_messages event
+        if Config.ENABLE_FORWARDING and document_id and event_type != "notification_messages":
+            print(f"[INFO] Forwarding event type {event_type} to backend")
+            try:
+                await forward_to_backend(
+                    document_id=document_id,
+                    event_type=event_type,
+                    data=event_data
+                )
+            except Exception as e:
+                print(f"[ERROR] Failed to forward to backend: {str(e)}")
+                # Create error log for failed forward
+                error_log = {
+                    'type': 'fb_event_forward_error',
+                    'time_id': time_id,
+                    'related_document_id': document_id,
+                    'event_type': event_type,
+                    'error': str(e),
+                    'status': 'pending_retry'
+                }
+                try:
+                    await db.insert_wh(error_log)
+                    print(f"[INFO] Created error log for failed forward: {document_id}")
+                except Exception as log_error:
+                    print(f"[ERROR] Failed to create error log: {str(log_error)}")
+                
+                # Add to retry queue if needed
+                # TODO: Implement retry mechanism
+                
+        elif event_type == "notification_messages":
+            print(f"[INFO] Skipping forward for notification_messages event")
         
     except Exception as e:
         print(f"[ERROR] Background processing error: {str(e)}")
+        import traceback
+        print(f"Error processing webhook:")
+        print(f"{str(e)}")
+        print(f"Traceback (most recent call last):")
+        print(traceback.format_exc())
         await log_error(db, e, time_id) 

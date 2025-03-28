@@ -1,34 +1,97 @@
 from typing import Dict, Any
 import time
+import json
+from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient
 from utils.config import Config
 
 class Database:
     def __init__(self):
         # MongoDB connection
-        self.client = MongoClient(Config.MONGODB_URI)
-        self.db = self.client[Config.MONGODB_DB]
-        self.logs_collection = self.db[Config.MONGODB_COLLECTION_LOGS]
-        self.pages_collection = self.db[Config.MONGODB_COLLECTION_PAGES]
-        
-        # Create indexes
-        self.logs_collection.create_index("time_id")
-        self.pages_collection.create_index("page_id", unique=True)
+        try:
+            # Use Motor for async operations
+            self.async_client = AsyncIOMotorClient(Config.MONGODB_URI)
+            self.async_db = self.async_client[Config.MONGODB_DB]
+            self.async_logs_collection = self.async_db[Config.MONGODB_COLLECTION_LOGS]
+            self.async_pages_collection = self.async_db[Config.MONGODB_COLLECTION_PAGES]
+            self.async_notification_collection = self.async_db[Config.MONGODB_COLLECTION_NOTIFICATION]
+            
+            # Keep PyMongo for sync operations
+            self.client = MongoClient(Config.MONGODB_URI)
+            self.db = self.client[Config.MONGODB_DB]
+            self.logs_collection = self.db[Config.MONGODB_COLLECTION_LOGS]
+            self.pages_collection = self.db[Config.MONGODB_COLLECTION_PAGES]
+            self.notification_collection = self.db[Config.MONGODB_COLLECTION_NOTIFICATION]
+            
+            # Create indexes
+            self.logs_collection.create_index("time_id")
+            self.pages_collection.create_index("page_id", unique=True)
+            self.notification_collection.create_index("data.notification_messages_token")
+            
+            print(f"[INFO] Successfully connected to MongoDB: {Config.MONGODB_URI}")
+            self._connection_ready = True
+            
+        except Exception as e:
+            print(f"[ERROR] MongoDB connection failed: {str(e)}")
+            # Set default values to avoid NoneType errors
+            self.async_client = None
+            self.async_db = None
+            self.async_logs_collection = None
+            self.async_pages_collection = None
+            self.async_notification_collection = None
+            self.client = None
+            self.db = None
+            self.logs_collection = None
+            self.pages_collection = None
+            self.notification_collection = None
+            self._connection_ready = False
 
     async def insert_wh(self, log: Dict[str, Any]):
         """Insert webhook log"""
         try:
-            result = self.logs_collection.insert_one(log)
-            print(f"Logged successfully with ID: {result.inserted_id}")
-            return str(result.inserted_id)  # Convert ObjectId to string
+            if not self._connection_ready:
+                print(f"[ERROR] MongoDB connection not available, cannot insert log")
+                # Return a placeholder ID
+                return f"error_no_connection_{time.time()}"
+            
+            # Check if this is a notification_messages event
+            if log.get('event_type') == 'notification_messages':
+                if self.async_notification_collection is None:
+                    print(f"[ERROR] Notification collection not available")
+                    return f"error_no_collection_{time.time()}"
+                    
+                print(f"[DEBUG] Attempting to insert notification_messages into notification collection")
+                result = await self.async_notification_collection.insert_one(log)
+                print(f"[INFO] Notification logged successfully with ID: {result.inserted_id}")
+                return str(result.inserted_id)
+            else:
+                if self.async_logs_collection is None:
+                    print(f"[ERROR] Logs collection not available")
+                    return f"error_no_collection_{time.time()}"
+                    
+                print(f"[DEBUG] Attempting to insert document into logs collection")
+                result = await self.async_logs_collection.insert_one(log)
+                print(f"[INFO] Logged successfully with ID: {result.inserted_id}")
+                return str(result.inserted_id)
+                
         except Exception as e:
-            print(f"Error inserting log: {str(e)}")
-            return None
+            print(f"[ERROR] Error inserting log: {str(e)}")
+            print(f"[DEBUG] Log content that failed to insert: {json.dumps(log)[:200]}...")
+            return f"error_{time.time()}"
 
     async def get_page_document(self, page_id: str) -> Dict[str, Any]:
         """Get page document"""
         try:
-            page = self.pages_collection.find_one({"page_id": page_id})
+            if not self._connection_ready or self.async_pages_collection is None:
+                print(f"[ERROR] MongoDB connection not available, returning default page data")
+                return {
+                    'page_id': page_id,
+                    'status': 'off',
+                    'page_access_token': '',
+                    'store_id': ''
+                }
+                
+            page = await self.async_pages_collection.find_one({"page_id": page_id})
             if page:
                 return page
             return {
@@ -38,7 +101,7 @@ class Database:
                 'store_id': ''
             }
         except Exception as e:
-            print(f"Error getting page document: {str(e)}")
+            print(f"[ERROR] Error getting page document: {str(e)}")
             return {
                 'page_id': page_id,
                 'status': 'off',
@@ -49,23 +112,35 @@ class Database:
     async def update_page(self, page_id: str, data: Dict[str, Any]):
         """Update page document"""
         try:
+            if not self._connection_ready or self.async_pages_collection is None:
+                print(f"[ERROR] MongoDB connection not available, cannot update page")
+                return
+                
             data['page_id'] = page_id
-            self.pages_collection.update_one(
+            await self.async_pages_collection.update_one(
                 {"page_id": page_id},
                 {"$set": data},
                 upsert=True
             )
-            print(f"Updated page {page_id} successfully")
+            print(f"[INFO] Updated page {page_id} successfully")
         except Exception as e:
-            print(f"Error updating page: {str(e)}")
+            print(f"[ERROR] Error updating page: {str(e)}")
 
     def close(self):
         """Close MongoDB connection"""
-        self.client.close()
+        if self.client:
+            self.client.close()
+        if self.async_client:
+            self.async_client.close()
+            print(f"[INFO] MongoDB connections closed")
 
-    def init_default_page(self):
+    async def init_default_page(self):
         """Initialize default page in MongoDB"""
         try:
+            if not self._connection_ready or self.async_pages_collection is None:
+                print(f"[ERROR] MongoDB connection not available, cannot init default page")
+                return
+                
             default_page = {
                 'page_id': Config.PAGE_ID,
                 'status': 'on',
@@ -74,14 +149,14 @@ class Database:
             }
             
             # Insert or update the default page
-            self.pages_collection.update_one(
+            await self.async_pages_collection.update_one(
                 {'page_id': default_page['page_id']},
                 {'$set': default_page},
                 upsert=True
             )
-            print("Default page initialized successfully with new token")
+            print("[INFO] Default page initialized successfully with new token")
         except Exception as e:
-            print(f"Error initializing default page: {str(e)}")
+            print(f"[ERROR] Error initializing default page: {str(e)}")
 
 # Create global database instance
 db = Database() 

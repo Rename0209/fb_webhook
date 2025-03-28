@@ -61,6 +61,13 @@ def _parse_messaging_event(entry, structured_data):
         dict: Updated structured data or None if no valid events
     """
     for messaging in entry.get("messaging", []):
+        # Check for optin event (notification_messages)
+        if "optin" in messaging:
+            result = _parse_notification_messages(messaging, structured_data)
+            if result:
+                return result
+        
+        # Handle regular messages
         event_type = "message"
         sender_id = messaging.get("sender", {}).get("id")
         recipient_id = messaging.get("recipient", {}).get("id")
@@ -79,6 +86,52 @@ def _parse_messaging_event(entry, structured_data):
         return structured_data
     
     return None
+
+def _parse_notification_messages(messaging, structured_data):
+    """
+    Parse notification_messages optin events
+    
+    Args:
+        messaging (dict): The messaging event containing optin data
+        structured_data (dict): Base structured data object
+        
+    Returns:
+        dict: Updated structured data with notification_messages information
+    """
+    optin = messaging.get("optin", {})
+    
+    # Check if this is a notification_messages event
+    if optin.get("type") != "notification_messages":
+        return None
+        
+    # Get token and current status
+    token = optin.get("notification_messages_token")
+    current_status = optin.get("notification_messages_status")
+    
+    # Determine new status
+    if not current_status or current_status == "RESUME_NOTIFICATIONS":
+        new_status = "AVAILABLE"
+    else:
+        new_status = "NOT_AVAILABLE"
+        
+    # Extract notification_messages data
+    notification_data = {
+        "sender_id": messaging.get("sender", {}).get("id"),
+        "recipient_id": messaging.get("recipient", {}).get("id"),
+        "notification_messages_token": token,
+        "token_expiry_timestamp": optin.get("token_expiry_timestamp"),
+        "user_token_status": optin.get("user_token_status"),
+        "notification_messages_timezone": optin.get("notification_messages_timezone"),
+        "title": optin.get("title"),
+        "notification_messages_status": new_status
+    }
+    
+    # Set event type and data
+    structured_data['event_type'] = "notification_messages"
+    structured_data['data'] = notification_data
+    
+    print(f"Received notification_messages event: {json.dumps(notification_data)}")
+    return structured_data
 
 def _parse_changes_event(entry, structured_data):
     """

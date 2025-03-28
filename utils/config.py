@@ -12,15 +12,16 @@ class Config:
     """Configuration settings for the application"""
     
     # Facebook API settings
-    VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
-    PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
-    PAGE_ID = os.getenv("PAGE_ID")
+    VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "your_verify_token")
+    PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
+    PAGE_ID = os.getenv("PAGE_ID", "")
     
     # MongoDB settings
-    MONGODB_URI = os.getenv("MONGODB_URI")
-    MONGODB_DB = os.getenv("MONGODB_DB")
-    MONGODB_COLLECTION_LOGS = os.getenv("MONGODB_COLLECTION_LOGS")
-    MONGODB_COLLECTION_PAGES = os.getenv("MONGODB_COLLECTION_PAGES")
+    MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    MONGODB_DB = os.getenv("MONGODB_DB", "facebook_webhook")
+    MONGODB_COLLECTION_LOGS = os.getenv("MONGODB_COLLECTION_LOGS", "webhook_logs")
+    MONGODB_COLLECTION_PAGES = os.getenv("MONGODB_COLLECTION_PAGES", "pages")
+    MONGODB_COLLECTION_NOTIFICATION = os.getenv("MONGODB_COLLECTION_NOTIFICATION", "notification_messages")
     
     # Server settings
     HOST = "0.0.0.0"
@@ -41,6 +42,7 @@ class Config:
             "MONGODB_DB": cls.MONGODB_DB,
             "MONGODB_COLLECTION_LOGS": cls.MONGODB_COLLECTION_LOGS,
             "MONGODB_COLLECTION_PAGES": cls.MONGODB_COLLECTION_PAGES,
+            "MONGODB_COLLECTION_NOTIFICATION": cls.MONGODB_COLLECTION_NOTIFICATION,
             "HOST": cls.HOST,
             "PORT": cls.PORT,
             "BACKEND_SERVER_URL": cls.BACKEND_SERVER_URL,

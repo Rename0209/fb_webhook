@@ -2,9 +2,10 @@
 Facebook Webhook Application
 Main entry point for the FastAPI application that handles Facebook webhooks.
 """
+import asyncio
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from database import db
 from routes import router
 from utils.config import Config
 
@@ -15,10 +16,16 @@ async def lifespan(app: FastAPI):
     
     Handles startup and shutdown events
     """
-    # Startup logic
-    db.init_default_page()  # Initialize default page with the token
+    # Initialize database and default page on startup
+    from database import db
+    
+    # Initialize default page if configured
+    if hasattr(Config, 'PAGE_ID') and Config.PAGE_ID:
+        await db.init_default_page()
+    
     yield
-    # Shutdown logic
+    
+    # Cleanup on shutdown
     db.close()
 
 # Initialize FastAPI app
@@ -29,9 +36,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include routers
 app.include_router(router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=Config.HOST, port=Config.PORT)
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=int(Config.PORT), 
+        reload=True
+    )

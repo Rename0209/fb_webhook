@@ -8,103 +8,59 @@ from utils.config import Config
 
 async def forward_to_backend(document_id: str, event_type: str, data: dict):
     """
-    Forward webhook data to backend with smart handling of response codes
+    Forward webhook data to backend
+    
+    Args:
+        document_id (str): The ID of the webhook document
+        event_type (str): The type of event
+        data (dict): The event data
     """
     try:
-        print(f"\n=== Starting to forward document {document_id} to backend ===")
-        print(f"Event type: {event_type}")
-        print(f"Data: {json.dumps(data, indent=2)}")
-        print(f"Backend URL: {Config.BACKEND_SERVER_URL}")
-        print(f"Forwarding enabled: {Config.ENABLE_FORWARDING}")
+        # Extract essential metadata
+        essential_metadata = extract_essential_metadata(event_type, data)
         
-        if not Config.ENABLE_FORWARDING:
-            print("Forwarding is disabled in configuration")
-            return {
-                "success": False,
-                "error": "Forwarding is disabled"
-            }
-        
-        # Xác định nếu event này nên được xử lý đồng bộ hay bất đồng bộ
-        is_async_event = should_process_async(event_type, data)
-        print(f"Processing mode: {'async' if is_async_event else 'sync'}")
-        
-        # Trích xuất metadata để kiểm tra, ngay cả khi không sử dụng
-        metadata = extract_essential_metadata(event_type, data)
-        print(f"Extracted metadata: {json.dumps(metadata, indent=2)}")
-        
-        # Xác định dữ liệu để gửi
-        payload_data = metadata if is_async_event else data
-        print(f"Payload type: {'metadata only' if is_async_event else 'full data'}")
-        print(f"Payload size: {len(json.dumps(payload_data))} characters")
-        
+        # Prepare payload
         payload = {
             "document_id": document_id,
             "event_type": event_type,
-            "data": payload_data,
-            "timestamp": asyncio.get_event_loop().time(),
-            "processing_preference": "async" if is_async_event else "sync"
+            "data": data,
+            "metadata": essential_metadata
         }
         
-        print(f"\nSending POST request to: {Config.BACKEND_SERVER_URL}")
-        print(f"Request payload: {json.dumps(payload, indent=2)}")
-        
-        async with httpx.AsyncClient(timeout=Config.FORWARD_TIMEOUT) as client:
-            try:
-                response = await client.post(Config.BACKEND_SERVER_URL, json=payload)
-                print(f"\nResponse status code: {response.status_code}")
-                print(f"Response headers: {dict(response.headers)}")
-                print(f"Response body: {response.text}")
-                
-                # Xử lý status code đúng cách
-                if response.status_code == 200:
-                    print(f"Document {document_id} processed synchronously")
-                    return {
-                        "success": True,
-                        "status_code": response.status_code,
-                        "sync": True,
-                        "response": response.json() if response.text else None
-                    }
-                elif response.status_code in [201, 202]:
-                    print(f"Document {document_id} accepted for asynchronous processing")
-                    return {
-                        "success": True,
-                        "status_code": response.status_code,
-                        "sync": False
-                    }
+        # Forward to backend
+        async with httpx.AsyncClient() as client:
+            print(f"[INFO] Forwarding to backend: {Config.BACKEND_SERVER_URL}")
+            print(f"[DEBUG] Payload: {json.dumps(payload, indent=2)}")
+            
+            response = await client.post(
+                Config.BACKEND_SERVER_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30.0
+            )
+            
+            # Check response
+            if response.status_code == 200:
+                response_text = response.text.strip()
+                if response_text == 'EVENT_RECEIVED':
+                    print(f"[INFO] Backend received event successfully")
+                    return True
                 else:
-                    print(f"Failed to forward document {document_id}. Status code: {response.status_code}")
-                    print(f"Response: {response.text}")
-                    # Log the failure for retry processing
-                    await log_failed_forward(document_id, event_type, data, response.status_code)
-                    return {
-                        "success": False,
-                        "status_code": response.status_code,
-                        "error": response.text
-                    }
-            except httpx.ConnectError as e:
-                print(f"Connection error: {str(e)}")
-                return {
-                    "success": False,
-                    "error": f"Connection error: {str(e)}"
-                }
-            except httpx.TimeoutException as e:
-                print(f"Timeout error: {str(e)}")
-                return {
-                    "success": False,
-                    "error": f"Timeout error: {str(e)}"
-                }
+                    print(f"[WARNING] Unexpected response from backend: {response_text}")
+                    return False
+            else:
+                print(f"[ERROR] Backend request failed with status {response.status_code}")
+                print(f"[ERROR] Response: {response.text}")
+                return False
                 
     except Exception as e:
-        print(f"\nError forwarding document {document_id}: {str(e)}")
-        print(f"Error type: {type(e).__name__}")
+        print(f"[ERROR] Error forwarding to backend: {str(e)}")
         import traceback
-        print(f"Traceback: {traceback.format_exc()}")
-        # Log the exception for retry processing
-        await log_failed_forward(document_id, event_type, data, 0, str(e))
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        print(f"Error forwarding to backend:")
+        print(f"{str(e)}")
+        print(f"Traceback (most recent call last):")
+        print(traceback.format_exc())
+        return False
 
 def extract_essential_metadata(event_type: str, data: dict) -> dict:
     """
