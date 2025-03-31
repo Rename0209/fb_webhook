@@ -8,3 +8,4 @@ python-multipart==0.0.9
 pydantic>=2.9.2
 pydantic-core>=2.18.2
 pydantic-settings==2.1.0
+httpx==0.25.1
