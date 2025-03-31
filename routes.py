@@ -158,6 +158,39 @@ async def process_webhook_data(structured_data: dict, time_id: float, event_type
             else:
                 print(f"[WARNING] Cannot check for token duplicates - database connection not available")
         
+        # Handle address_form events specially
+        if event_type == "address_form":
+            if hasattr(db, 'async_addresses_collection') and db.async_addresses_collection is not None:
+                try:
+                    sender_id = event_data.get('sender_id')
+                    recipient_id = event_data.get('recipient_id')
+                    
+                    # Check if record with same sender_id and recipient_id exists
+                    existing_record = await db.async_addresses_collection.find_one({
+                        'sender_id': sender_id,
+                        'recipient_id': recipient_id
+                    })
+                    
+                    if existing_record:
+                        print(f"[INFO] Found existing address record for user {sender_id}, updating...")
+                        # Update existing record
+                        await db.async_addresses_collection.update_one(
+                            {'_id': existing_record['_id']},
+                            {'$set': event_data}
+                        )
+                        print(f"[INFO] Updated address form data for user {sender_id}")
+                    else:
+                        # Insert new record
+                        await db.async_addresses_collection.insert_one(event_data)
+                        print(f"[INFO] Saved new address form data for user {sender_id}")
+                    
+                    return  # Don't forward to backend
+                except Exception as e:
+                    print(f"[ERROR] Failed to save/update address form data: {str(e)}")
+            else:
+                print(f"[WARNING] Cannot save address form data - database connection not available")
+            return
+        
         # Save the structured data and get the document ID
         document_id = await db.insert_wh(structured_data)
         
@@ -169,7 +202,7 @@ async def process_webhook_data(structured_data: dict, time_id: float, event_type
             'event_type': event_type,
             'page_id': structured_data.get('page_id')
         }
-        await db.insert_wh(confirm_log)
+        # await db.insert_wh(confirm_log)
         
         # Forward to backend if enabled and not a notification_messages event
         if Config.ENABLE_FORWARDING and document_id and event_type != "notification_messages":
@@ -196,9 +229,6 @@ async def process_webhook_data(structured_data: dict, time_id: float, event_type
                     print(f"[INFO] Created error log for failed forward: {document_id}")
                 except Exception as log_error:
                     print(f"[ERROR] Failed to create error log: {str(log_error)}")
-                
-                # Add to retry queue if needed
-                # TODO: Implement retry mechanism
                 
         elif event_type == "notification_messages":
             print(f"[INFO] Skipping forward for notification_messages event")

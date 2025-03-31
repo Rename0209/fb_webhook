@@ -30,6 +30,7 @@ class Database:
             self.async_logs_collection = self.async_db[Config.MONGODB_COLLECTION_LOGS]
             self.async_pages_collection = self.async_db[Config.MONGODB_COLLECTION_PAGES]
             self.async_notification_collection = self.async_db[Config.MONGODB_COLLECTION_NOTIFICATION]
+            self.async_addresses_collection = self.async_db[Config.MONGODB_COLLECTION_ADDRESSES]
             
             # Keep PyMongo for sync operations
             self.client = MongoClient(
@@ -44,11 +45,13 @@ class Database:
             self.logs_collection = self.db[Config.MONGODB_COLLECTION_LOGS]
             self.pages_collection = self.db[Config.MONGODB_COLLECTION_PAGES]
             self.notification_collection = self.db[Config.MONGODB_COLLECTION_NOTIFICATION]
+            self.addresses_collection = self.db[Config.MONGODB_COLLECTION_ADDRESSES]
             
             # Create indexes
             self.logs_collection.create_index("time_id")
             self.pages_collection.create_index("page_id", unique=True)
             self.notification_collection.create_index("data.notification_messages_token")
+            self.addresses_collection.create_index("sender_id")
             
             print(f"[INFO] Successfully connected to MongoDB: {Config.MONGODB_URI}")
             self._connection_ready = True
@@ -65,11 +68,13 @@ class Database:
         self.async_logs_collection = None
         self.async_pages_collection = None
         self.async_notification_collection = None
+        self.async_addresses_collection = None
         self.client = None
         self.db = None
         self.logs_collection = None
         self.pages_collection = None
         self.notification_collection = None
+        self.addresses_collection = None
 
     async def _ensure_connection(self):
         """Ensure MongoDB connection is active"""
