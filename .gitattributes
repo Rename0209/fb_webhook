@@ -12,4 +12,15 @@
 
 # Windows scripts
 *.bat text eol=crlf
-*.cmd text eol=crlf 
+*.cmd text eol=crlf
+
+# Text files
+*.txt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.env text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf 
