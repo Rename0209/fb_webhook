@@ -98,114 +98,64 @@ class Database:
         """Insert webhook log with connection retry"""
         try:
             if not await self._ensure_connection():
-                print(f"[ERROR] MongoDB connection not available after retries")
-                return f"error_no_connection_{time.time()}"
-            
-            # Check if this is a notification_messages event
-            if log.get('event_type') == 'notification_messages':
-                if self.async_notification_collection is None:
-                    print(f"[ERROR] Notification collection not available")
-                    return f"error_no_collection_{time.time()}"
-                    
-                print(f"[DEBUG] Attempting to insert notification_messages into notification collection")
-                result = await self.async_notification_collection.insert_one(log)
-                print(f"[INFO] Notification logged successfully with ID: {result.inserted_id}")
-                return str(result.inserted_id)
-            else:
-                if self.async_logs_collection is None:
-                    print(f"[ERROR] Logs collection not available")
-                    return f"error_no_collection_{time.time()}"
-                    
-                print(f"[DEBUG] Attempting to insert document into logs collection")
-                result = await self.async_logs_collection.insert_one(log)
-                print(f"[INFO] Logged successfully with ID: {result.inserted_id}")
-                return str(result.inserted_id)
+                print("[ERROR] Failed to insert webhook log: No database connection")
+                return False
                 
+            # Convert time field to int if exists
+            if 'entry' in log and isinstance(log['entry'], list):
+                for entry in log['entry']:
+                    if 'time' in entry and isinstance(entry['time'], (int, float)):
+                        entry['time'] = int(entry['time'])
+                        
+            result = await self.async_logs_collection.insert_one(log)
+            return result.inserted_id is not None
+            
         except Exception as e:
-            print(f"[ERROR] Error inserting log: {str(e)}")
-            print(f"[DEBUG] Log content that failed to insert: {json.dumps(log)[:200]}...")
-            return f"error_{time.time()}"
+            print(f"[ERROR] Failed to insert webhook log: {str(e)}")
+            return False
 
     async def get_page_document(self, page_id: str) -> Dict[str, Any]:
-        """Get page document with connection retry"""
+        """Get page document by page_id"""
         try:
             if not await self._ensure_connection():
-                print(f"[ERROR] MongoDB connection not available after retries")
-                return {
-                    'page_id': page_id,
-                    'status': 'off',
-                    'page_access_token': '',
-                    'store_id': ''
-                }
+                print("[ERROR] Failed to get page document: No database connection")
+                return None
                 
-            page = await self.async_pages_collection.find_one({"page_id": page_id})
-            if page:
-                return page
-            return {
-                'page_id': page_id,
-                'status': 'off',
-                'page_access_token': '',
-                'store_id': ''
-            }
+            document = await self.async_pages_collection.find_one({"page_id": page_id})
+            return document
+            
         except Exception as e:
-            print(f"[ERROR] Error getting page document: {str(e)}")
-            return {
-                'page_id': page_id,
-                'status': 'off',
-                'page_access_token': '',
-                'store_id': ''
-            }
+            print(f"[ERROR] Failed to get page document: {str(e)}")
+            return None
 
     async def update_page(self, page_id: str, data: Dict[str, Any]):
-        """Update page document with connection retry"""
+        """Update page document"""
         try:
             if not await self._ensure_connection():
-                print(f"[ERROR] MongoDB connection not available after retries")
-                return
+                print("[ERROR] Failed to update page: No database connection")
+                return False
                 
-            data['page_id'] = page_id
-            await self.async_pages_collection.update_one(
+            result = await self.async_pages_collection.update_one(
                 {"page_id": page_id},
                 {"$set": data},
                 upsert=True
             )
-            print(f"[INFO] Updated page {page_id} successfully")
+            return result.modified_count > 0 or result.upserted_id is not None
+            
         except Exception as e:
-            print(f"[ERROR] Error updating page: {str(e)}")
+            print(f"[ERROR] Failed to update page: {str(e)}")
+            return False
 
     def close(self):
-        """Close MongoDB connection"""
+        """Close database connections"""
         try:
             if self.client:
                 self.client.close()
             if self.async_client:
                 self.async_client.close()
-            print(f"[INFO] MongoDB connections closed")
+            print("[INFO] Database connections closed")
         except Exception as e:
-            print(f"[ERROR] Error closing MongoDB connections: {str(e)}")
-
-    async def init_default_page(self):
-        """Initialize default page in MongoDB with connection retry"""
-        try:
-            if not await self._ensure_connection():
-                print(f"[ERROR] MongoDB connection not available after retries")
-                return
-                
-            default_page = {
-                'page_id': Config.PAGE_ID,
-                'status': 'on',
-                'page_access_token': Config.PAGE_ACCESS_TOKEN,
-                'store_id': 'default_store'
-            }
-            
-            await self.async_pages_collection.update_one(
-                {'page_id': default_page['page_id']},
-                {'$set': default_page},
-                upsert=True
-            )
-            print("[INFO] Default page initialized successfully with new token")
-        except Exception as e:
-            print(f"[ERROR] Error initializing default page: {str(e)}")
+            print(f"[ERROR] Error closing database connections: {str(e)}")
 
 # Create global database instance
 db = Database() 

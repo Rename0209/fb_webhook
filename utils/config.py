@@ -15,6 +15,7 @@ class Config:
     VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "your_verify_token")
     PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN", "")
     PAGE_ID = os.getenv("PAGE_ID", "")
+    FACEBOOK_APP_SECRET = os.getenv("FACEBOOK_APP_SECRET", "")
     
     # MongoDB settings
     MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
@@ -32,6 +33,7 @@ class Config:
     BACKEND_SERVER_URL = os.getenv("BACKEND_SERVER_URL", "http://localhost:4000/api/webhook")
     FORWARD_TIMEOUT = int(os.getenv("FORWARD_TIMEOUT", "30"))
     ENABLE_FORWARDING = os.getenv("ENABLE_FORWARDING", "true").lower() == "true"
+    API_KEY = os.getenv("API_KEY")
     
     @classmethod
     def get_all(cls):
@@ -39,6 +41,7 @@ class Config:
         return {
             "VERIFY_TOKEN": cls.VERIFY_TOKEN,
             "PAGE_ID": cls.PAGE_ID,
+            "FACEBOOK_APP_SECRET": cls.FACEBOOK_APP_SECRET,
             "MONGODB_URI": cls.MONGODB_URI,
             "MONGODB_DB": cls.MONGODB_DB,
             "MONGODB_COLLECTION_LOGS": cls.MONGODB_COLLECTION_LOGS,

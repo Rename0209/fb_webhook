@@ -4,8 +4,9 @@ This module defines the API routes and handlers.
 """
 import time
 import json
+import hmac
+import hashlib
 from fastapi import Request, Response, APIRouter, BackgroundTasks
-from utils.webhook_parser import extract_structured_data
 from utils.error_handler import log_error
 from utils.webhook_forwarder import forward_to_backend
 from utils.config import Config
@@ -13,6 +14,51 @@ from database import db
 
 # Create router
 router = APIRouter()
+
+async def verify_facebook_signature(request: Request) -> bool:
+    """
+    Verify that the webhook request came from Facebook using signed signature.
+    """
+    # Get signature from header
+    signature = request.headers.get('X-Hub-Signature-256')
+    if not signature:
+        print("[ERROR] No signature found in headers")
+        print("[DEBUG] Available headers:", request.headers)
+        return False
+    
+    # Get raw body
+    body = await request.body()
+    
+    # Get app secret from config
+    app_secret = Config.FACEBOOK_APP_SECRET
+    if not app_secret:
+        print("[ERROR] No app secret configured")
+        return False
+        
+    # Calculate expected signature
+    expected_signature = hmac.new(
+        app_secret.encode('utf-8'),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+    
+    # Compare signatures
+    actual_signature = signature.split('=')[1]
+    
+    # Debug information
+    print("[DEBUG] Signature validation details:")
+    print(f"[DEBUG] - Received signature: {actual_signature}")
+    print(f"[DEBUG] - Calculated signature: {expected_signature}")
+    print(f"[DEBUG] - Body length: {len(body)} bytes")
+    print(f"[DEBUG] - Body preview: {body[:100]}...")
+    
+    if not hmac.compare_digest(actual_signature, expected_signature):
+        print("[ERROR] Signature verification failed")
+        print("[DEBUG] - Signatures do not match")
+        return False
+        
+    print("[INFO] Signature verification successful")
+    return True
 
 @router.get("/qawh")
 @router.get("/fqawh")
@@ -47,44 +93,33 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     time_id = time.time()
     
     try:
+        # Verify Facebook signature
+        if not await verify_facebook_signature(request):
+            return Response(
+                content=json.dumps({
+                    "status": "error",
+                    "message": "Invalid signature"
+                }),
+                status_code=403,
+                media_type="application/json"
+            )
+            
         # Parse raw body as JSON
         raw_data = await request.json()
         
         if raw_data.get("object") == "page":
-            # Extract and process data
-            structured_data = extract_structured_data(raw_data)
-            
-            # Skip processing if structured_data is None (e.g., comment from page)
-            if structured_data is None:
-                print(f"[SKIP] Comment from page itself")
-                return Response(
-                    content=json.dumps({
-                        "status": "skipped",
-                        "reason": "event_should_be_skipped",
-                        "message": "Event was skipped (e.g., comment from page)"
-                    }),
-                    status_code=200,
-                    media_type="application/json"
-                )
-            
-            event_type = structured_data.get('event_type')
-            event_data = structured_data.get('data', {})
-            
             # Return response immediately
             response_data = {
                 "status": "success",
                 "message": "Webhook received, processing in background",
-                "event_type": event_type,
                 "time_id": time_id
             }
             
             # Add processing task to background tasks
             background_tasks.add_task(
                 process_webhook_data,
-                structured_data=structured_data,
-                time_id=time_id,
-                event_type=event_type,
-                event_data=event_data
+                raw_data=raw_data,
+                time_id=time_id
             )
             
             return Response(
@@ -113,125 +148,38 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             media_type="application/json"
         )
 
-async def process_webhook_data(structured_data: dict, time_id: float, event_type: str, event_data: dict):
+async def process_webhook_data(raw_data: dict, time_id: float):
     """
     Process webhook data in background
     
     Args:
-        structured_data (dict): The structured webhook data
+        raw_data (dict): The raw webhook data from Facebook
         time_id (float): The time ID of the webhook
-        event_type (str): The type of event
-        event_data (dict): The event data
     """
     try:
-        # Handle notification_messages events specially
-        if event_type == "notification_messages" and "notification_messages_token" in event_data:
-            token = event_data.get("notification_messages_token")
-            if token and hasattr(db, 'async_notification_collection') and db.async_notification_collection is not None:
-                try:
-                    # Check if this token already exists
-                    print(f"[DEBUG] Checking for existing notification_messages_token: {token}")
-                    existing_record = await db.async_notification_collection.find_one({
-                        'event_type': 'notification_messages',
-                        'data.notification_messages_token': token
-                    })
-                    
-                    if existing_record:
-                        print(f"[INFO] Found existing notification_messages_token: {token}")
-                        
-                        # Update existing record with new status
-                        try:
-                            update_result = await db.async_notification_collection.update_one(
-                                {'_id': existing_record['_id']},
-                                {'$set': {'data.notification_messages_status': event_data.get('notification_messages_status')}}
-                            )
-                            print(f"[INFO] Updated existing record status to {event_data.get('notification_messages_status')}")
-                            print(f"[INFO] Skipping further processing for duplicate token")
-                            
-                            # Return early without saving new data or forwarding to backend
-                            return
-                        except Exception as e:
-                            print(f"[WARNING] Could not update existing record: {str(e)}")
-                except Exception as e:
-                    print(f"[WARNING] Error checking for existing token: {str(e)}")
-                    # Continue with regular processing
-            else:
-                print(f"[WARNING] Cannot check for token duplicates - database connection not available")
+        # Create a copy of raw data for forwarding
+        data_to_forward = raw_data.copy()
         
-        # Handle address_form events specially
-        if event_type == "address_form":
-            if hasattr(db, 'async_addresses_collection') and db.async_addresses_collection is not None:
-                try:
-                    sender_id = event_data.get('sender_id')
-                    recipient_id = event_data.get('recipient_id')
-                    
-                    # Check if record with same sender_id and recipient_id exists
-                    existing_record = await db.async_addresses_collection.find_one({
-                        'sender_id': sender_id,
-                        'recipient_id': recipient_id
-                    })
-                    
-                    if existing_record:
-                        print(f"[INFO] Found existing address record for user {sender_id}, updating...")
-                        # Update existing record
-                        await db.async_addresses_collection.update_one(
-                            {'_id': existing_record['_id']},
-                            {'$set': event_data}
-                        )
-                        print(f"[INFO] Updated address form data for user {sender_id}")
-                    else:
-                        # Insert new record
-                        await db.async_addresses_collection.insert_one(event_data)
-                        print(f"[INFO] Saved new address form data for user {sender_id}")
-                    
-                    return  # Don't forward to backend
-                except Exception as e:
-                    print(f"[ERROR] Failed to save/update address form data: {str(e)}")
-            else:
-                print(f"[WARNING] Cannot save address form data - database connection not available")
-            return
+        # Save to database first
+        await db.insert_wh(raw_data)
         
-        # Save the structured data and get the document ID
-        document_id = await db.insert_wh(structured_data)
-        
-        # Create confirmation log
-        confirm_log = {
-            'type': 'fb_event_confirm', 
-            'time_id': time_id,
-            'related_document_id': document_id,
-            'event_type': event_type,
-            'page_id': structured_data.get('page_id')
-        }
-        # await db.insert_wh(confirm_log)
-        
-        # Forward to backend if enabled and not a notification_messages event
-        if Config.ENABLE_FORWARDING and document_id and event_type != "notification_messages":
-            print(f"[INFO] Forwarding event type {event_type} to backend")
+        # Forward to backend if enabled
+        if Config.ENABLE_FORWARDING:
+            print(f"[INFO] Forwarding event to backend")
             try:
-                await forward_to_backend(
-                    document_id=document_id,
-                    event_type=event_type,
-                    data=event_data
-                )
+                # Forward the copy of raw data
+                await forward_to_backend(data=data_to_forward)
+                
             except Exception as e:
                 print(f"[ERROR] Failed to forward to backend: {str(e)}")
                 # Create error log for failed forward
                 error_log = {
                     'type': 'fb_event_forward_error',
                     'time_id': time_id,
-                    'related_document_id': document_id,
-                    'event_type': event_type,
                     'error': str(e),
                     'status': 'pending_retry'
                 }
-                try:
-                    await db.insert_wh(error_log)
-                    print(f"[INFO] Created error log for failed forward: {document_id}")
-                except Exception as log_error:
-                    print(f"[ERROR] Failed to create error log: {str(log_error)}")
-                
-        elif event_type == "notification_messages":
-            print(f"[INFO] Skipping forward for notification_messages event")
+                await db.insert_wh(error_log)
         
     except Exception as e:
         print(f"[ERROR] Background processing error: {str(e)}")

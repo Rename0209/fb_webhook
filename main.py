@@ -16,12 +16,8 @@ async def lifespan(app: FastAPI):
     
     Handles startup and shutdown events
     """
-    # Initialize database and default page on startup
+    # Initialize database on startup
     from database import db
-    
-    # Initialize default page if configured
-    if hasattr(Config, 'PAGE_ID') and Config.PAGE_ID:
-        await db.init_default_page()
     
     yield
     
