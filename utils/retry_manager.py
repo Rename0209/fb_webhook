@@ -1,74 +1,42 @@
 """
 Retry Manager Module
-This module manages retry requests with priority for new data
+This module manages retry requests with simple retry mechanism
 """
 import httpx
 import asyncio
-from typing import Dict, List
+from typing import Dict
 from datetime import datetime
 from utils.config import Config
 
 class RetryManager:
     def __init__(self):
-        self.retry_queue: Dict[str, dict] = {}  # {data_id: retry_data}
         self.max_retries = 3
-        self.timeout = 3.0
-        self.processing_task = None
-        self.max_queue_size = 100  # Maximum number of items in queue
+        self.timeout = 3.0  # Timeout for each request
         
-    async def add_to_retry(self, data: dict, retry_count: int = 0):
-        """Add data to retry queue"""
-        # Check if queue is full
-        if len(self.retry_queue) >= self.max_queue_size:
-            print(f"[WARNING] Retry queue is full (max size: {self.max_queue_size}), dropping request")
-            return
-            
-        data_id = str(datetime.now().timestamp())
-        self.retry_queue[data_id] = {
-            'data': data,
-            'retry_count': retry_count,
-            'last_retry_time': datetime.now()
-        }
+    async def add_to_retry(self, data: dict) -> bool:
+        """
+        Retry sending data to backend up to 3 times
         
-        # Only start processing if not already running
-        if self.processing_task is None or self.processing_task.done():
-            self.processing_task = asyncio.create_task(self.process_retry_queue())
+        Args:
+            data (dict): The data to retry sending
             
-    async def process_retry_queue(self):
-        """Process retry queue"""
-        while self.retry_queue:
-            # Get the oldest data first
-            data_id = next(iter(self.retry_queue))
-            retry_data = self.retry_queue[data_id]
-            
-            # Check if we should retry
-            if retry_data['retry_count'] < self.max_retries:
-                try:
-                    print(f"[INFO] Retrying request (attempt {retry_data['retry_count'] + 1}/{self.max_retries})")
-                    # Forward data directly without using forward_to_backend
-                    success = await self.forward_data(retry_data['data'])
-                    
-                    if success:
-                        # Remove from queue if successful
-                        del self.retry_queue[data_id]
-                    else:
-                        # Update retry count and time
-                        retry_data['retry_count'] += 1
-                        retry_data['last_retry_time'] = datetime.now()
-                        
-                        # Wait before next retry
-                        await asyncio.sleep(self.timeout)
-                except Exception as e:
-                    print(f"[ERROR] Error processing retry: {str(e)}")
-                    retry_data['retry_count'] += 1
-                    retry_data['last_retry_time'] = datetime.now()
-                    await asyncio.sleep(self.timeout)
-            else:
-                print(f"[WARNING] Max retries ({self.max_retries}) reached for request")
-                # Remove from queue if max retries reached
-                del self.retry_queue[data_id]
+        Returns:
+            bool: True if successful, False if all retries failed
+        """
+        for attempt in range(self.max_retries):
+            try:
+                print(f"[INFO] Retrying request (attempt {attempt + 1}/{self.max_retries})")
+                success = await self.forward_data(data)
                 
-        self.processing_task = None
+                if success:
+                    print(f"[INFO] Retry successful on attempt {attempt + 1}")
+                    return True
+                    
+            except Exception as e:
+                print(f"[ERROR] Retry error on attempt {attempt + 1}: {str(e)}")
+                
+        print(f"[WARNING] All {self.max_retries} retry attempts failed")
+        return False
         
     async def forward_data(self, data: dict) -> bool:
         """Forward data to backend directly"""
@@ -84,7 +52,7 @@ class RetryManager:
                         "Content-Type": "application/json",
                         "api_key": Config.API_KEY
                     },
-                    timeout=3.0
+                    timeout=self.timeout
                 )
                 
                 # Check response
