@@ -12,6 +12,7 @@ class RetryManager:
     def __init__(self):
         self.max_retries = 3
         self.timeout = 10.0  # Timeout for each request
+        self.retry_delay = 15.0  # Delay between retries in seconds
         
     async def add_to_retry(self, data: dict) -> bool:
         """
@@ -34,6 +35,8 @@ class RetryManager:
                 else:
                     print(f"[WARNING] Retry failed on attempt {attempt + 1}")
                     if attempt < self.max_retries - 1:  # Only continue if not last attempt
+                        print(f"[INFO] Waiting {self.retry_delay} seconds before next retry...")
+                        await asyncio.sleep(self.retry_delay)
                         continue
                     else:
                         print(f"[WARNING] All {self.max_retries} retry attempts failed")
@@ -42,6 +45,8 @@ class RetryManager:
             except Exception as e:
                 print(f"[ERROR] Retry error on attempt {attempt + 1}: {str(e)}")
                 if attempt < self.max_retries - 1:  # Only continue if not last attempt
+                    print(f"[INFO] Waiting {self.retry_delay} seconds before next retry...")
+                    await asyncio.sleep(self.retry_delay)
                     continue
                 else:
                     print(f"[WARNING] All {self.max_retries} retry attempts failed")
