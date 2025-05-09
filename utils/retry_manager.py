@@ -11,7 +11,7 @@ from utils.config import Config
 class RetryManager:
     def __init__(self):
         self.max_retries = 3
-        self.timeout = 10.0  # Timeout for each request
+        self.timeout = 15.0  # Timeout for each request
         self.retry_delay = 15.0  # Delay between retries in seconds
         
     async def add_to_retry(self, data: dict) -> bool:
