@@ -11,7 +11,7 @@ from utils.config import Config
 class RetryManager:
     def __init__(self):
         self.max_retries = 3
-        self.timeout = 3.0  # Timeout for each request
+        self.timeout = 10.0  # Timeout for each request
         
     async def add_to_retry(self, data: dict) -> bool:
         """
@@ -31,11 +31,22 @@ class RetryManager:
                 if success:
                     print(f"[INFO] Retry successful on attempt {attempt + 1}")
                     return True
+                else:
+                    print(f"[WARNING] Retry failed on attempt {attempt + 1}")
+                    if attempt < self.max_retries - 1:  # Only continue if not last attempt
+                        continue
+                    else:
+                        print(f"[WARNING] All {self.max_retries} retry attempts failed")
+                        return False
                     
             except Exception as e:
                 print(f"[ERROR] Retry error on attempt {attempt + 1}: {str(e)}")
+                if attempt < self.max_retries - 1:  # Only continue if not last attempt
+                    continue
+                else:
+                    print(f"[WARNING] All {self.max_retries} retry attempts failed")
+                    return False
                 
-        print(f"[WARNING] All {self.max_retries} retry attempts failed")
         return False
         
     async def forward_data(self, data: dict) -> bool:

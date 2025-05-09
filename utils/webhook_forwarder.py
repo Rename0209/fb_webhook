@@ -30,7 +30,7 @@ async def forward_to_backend(data: dict):
                     "Content-Type": "application/json",
                     "api_key": Config.API_KEY
                 },
-                timeout=3.0
+                timeout=10.0
             )
             
             # Check response
