@@ -32,7 +32,7 @@ class Config:
     # Backend forwarding settings
     BACKEND_SERVER_URL = os.getenv("BACKEND_SERVER_URL", "http://localhost:4000/api/webhook")
     FORWARD_TIMEOUT = int(os.getenv("FORWARD_TIMEOUT", "30"))
-    ENABLE_FORWARDING = os.getenv("ENABLE_FORWARDING", "true").lower() == "true"
+    ENABLE_FORWARDING = True
     API_KEY = os.getenv("API_KEY")
     
     @classmethod

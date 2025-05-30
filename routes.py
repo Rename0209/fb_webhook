@@ -60,6 +60,58 @@ async def verify_facebook_signature(request: Request) -> bool:
     print("[INFO] Signature verification successful")
     return True
 
+async def process_webhook_data(raw_data: dict, time_id: float):
+    """
+    Process webhook data in background
+    
+    Args:
+        raw_data (dict): The raw webhook data
+        time_id (float): Timestamp of the webhook
+    """
+    try:
+        # Create a copy of raw data for forwarding
+        data_to_forward = raw_data.copy()
+        
+        # Save to database first
+        # await db.insert_wh(raw_data)
+        
+        # Forward to backend if enabled and it's a comment
+        if Config.ENABLE_FORWARDING:
+            # Check if it's a comment from Facebook
+            is_comment = False
+            if 'entry' in raw_data:
+                for entry in raw_data['entry']:
+                    if 'changes' in entry:
+                        for change in entry['changes']:
+                            if change.get('value', {}).get('item') == 'comment':
+                                is_comment = True
+                                break
+                    if is_comment:
+                        break
+            
+            if is_comment:
+                print(f"[INFO] Forwarding comment event to backend")
+                try:
+                    # Forward the copy of raw data
+                    await forward_to_backend(data=data_to_forward)
+                    
+                except Exception as e:
+                    print(f"[ERROR] Failed to forward to backend: {str(e)}")
+                    # Create error log for failed forward
+                    error_log = {
+                        'type': 'fb_event_forward_error',
+                        'time_id': time_id,
+                        'error': str(e),
+                        'status': 'pending_retry'
+                    }
+                    await db.insert_wh(error_log)
+            else:
+                print(f"[INFO] Skipping forward - not a comment event")
+    
+    except Exception as e:
+        print(f"[ERROR] Webhook processing error: {str(e)}")
+        await log_error(db, e, time_id)
+
 @router.get("/qawh")
 @router.get("/fqawh")
 async def verify(request: Request):
@@ -83,7 +135,7 @@ async def verify(request: Request):
 
 @router.post("/qawh")
 @router.post("/fqawh")
-async def webhook(request: Request):
+async def webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Webhook handler for Facebook events
     
@@ -108,8 +160,11 @@ async def webhook(request: Request):
         raw_data = await request.json()
         
         if raw_data.get("object") == "page":
-            # Return response immediately to prevent Facebook from resending
-            response = Response(
+            # Add webhook processing to background tasks
+            background_tasks.add_task(process_webhook_data, raw_data, time_id)
+            
+            # Return response immediately
+            return Response(
                 content=json.dumps({
                     "status": "success",
                     "message": "Webhook received",
@@ -118,38 +173,6 @@ async def webhook(request: Request):
                 status_code=200,
                 media_type="application/json"
             )
-            
-            # Process webhook data after sending response
-            try:
-                # Create a copy of raw data for forwarding
-                data_to_forward = raw_data.copy()
-                
-                # Save to database first
-                await db.insert_wh(raw_data)
-                
-                # Forward to backend if enabled
-                if Config.ENABLE_FORWARDING:
-                    print(f"[INFO] Forwarding event to backend")
-                    try:
-                        # Forward the copy of raw data
-                        await forward_to_backend(data=data_to_forward)
-                        
-                    except Exception as e:
-                        print(f"[ERROR] Failed to forward to backend: {str(e)}")
-                        # Create error log for failed forward
-                        error_log = {
-                            'type': 'fb_event_forward_error',
-                            'time_id': time_id,
-                            'error': str(e),
-                            'status': 'pending_retry'
-                        }
-                        await db.insert_wh(error_log)
-                
-            except Exception as e:
-                print(f"[ERROR] Webhook processing error: {str(e)}")
-                await log_error(db, e, time_id)
-            
-            return response
             
         return Response(
             content=json.dumps({"status": "success", "message": "not_a_page_event"}),
